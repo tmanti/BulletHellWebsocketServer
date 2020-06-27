@@ -20,7 +20,6 @@ function sendPacket(ws, type, data, id){
         id: id
     };
 
-
     ws.send(JSON.stringify(msg))
 }
 
@@ -43,16 +42,16 @@ connection.on('close', function clear() {
     clearTimeout(this.pingTimeout);
 });
 
-function authClient(ws, name, password){
+function authClient(ws, username, password){
     sendPacket(ws, 'auth', {
-        name: name,
+        username: username,
         password: password
     }, client.id)
 }
 
-function registerClient(ws, name, password){
+function registerClient(ws, username, password){
     sendPacket(ws, 'register', {
-        name: name,
+        username: username,
         password: password
     }, client.id)
 }

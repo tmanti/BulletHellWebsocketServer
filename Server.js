@@ -55,48 +55,48 @@ function sendErr(ws, errCode){
 function sendPacket(ws, type, data){
     var msg = {
         type: type,
-        data: data,
-        date: Date.now()
+        data: data
     };
 
     ws.send(JSON.stringify(msg))
 }
 
-function noop() {}
+//function noop() {}
 
-function heartbeat() {
-    this.isAlive = true;
-  }
+//function heartbeat() {
+//    this.isAlive = true;
+ // }
 
-const interval = setInterval(function ping() {
-    wss.clients.forEach(function each(ws) {
-        if (ws.isAlive === false){
-            freeConn(ws.id)
-            ws.terminate();
-        }
+//const interval = setInterval(function ping() {
+//    wss.clients.forEach(function each(ws) {
+//        if (ws.isAlive === false){
+ //           freeConn(ws.id)
+ //           ws.terminate();
+//        }
 
-        ws.isAlive = false;
-        ws.ping(noop);
-    });
-}, 30000);
+ //       ws.isAlive = false;
+  //      ws.ping(noop);
+//});
+//}, 30000);
 
-wss.on('close', function close() {
-    clearInterval(interval);
-  });
+//wss.on('close', function close() {
+   // clearInterval(interval);
+  //});
 
 wss.on('connection', ws=>{
     ws.on('message', message =>{
-        handleIncoming(ws, message)
+        handleIncoming(ws, message.toString())
     })
 
     ws.isAlive = true;
-    ws.on('pong', heartbeat);
+    //ws.on('pong', heartbeat);
 
     ws.id = id++;
     lookup[ws.id] = {
         ws:ws,
         uuid:null
     }
+    console.log("client connected and assigned id: " + ws.id)
     sendPacket(ws, 'connection', ws.id)
 });
 
@@ -105,17 +105,17 @@ function authClient(ws, msg){//check if user exists, if not deny access
     //AUTH CLIENT
     userobj = msg.data
     //console.log(userobj)
-    User.find({username: userobj.name}, (err, docs)=>{
+    User.find({username: userobj.username}, (err, docs)=>{
         if (err) return console.error(err);
+        if (!(docs.length>0)) return;
         bcrypt.compare(userobj.password, docs[0].password).then(function(result){
             user = docs[0]
             //console.log(result)
             if(result){
                 if(!(user.uuid in clients)){
-                    sendPacket(ws, 'auth', {
-                        name: user.username,
-                        uuid: user.uuid
-                    })
+                    sendPacket(ws, 'auth', "{" +
+                        "\"username\":\"" + user.username +"\","+
+                        "\"uuid\":\""+ user.uuid+"\"}")
                     clients[user.uuid] = {
                         ws: ws,
                         username: user.username
@@ -137,7 +137,7 @@ function registerClient(ws, msg){
     userobj = msg.data;
     //console.log(userobj)
     bcrypt.hash(userobj.password, saltRounds, function(err, hash){
-        const newUser = new User({ uuid:uuidv4(), username: userobj.name, password: hash})
+        const newUser = new User({ uuid:uuidv4(), username: userobj.username, password: hash})
         newUser.save(function(err, newUser){
             if(err){
                     if (error.name === 'MongoError' && error.code === 11000) {
