@@ -6,6 +6,8 @@ const saltRounds = 10;
 const uuidv4 = require('uuid/v4');
 
 const mongoose = require('mongoose');
+const { send } = require('process');
+const { debug } = require('console');
 mongoose.connect('mongodb://localhost:27017/gangplank', {useNewUrlParser: true, useUnifiedTopology: true });
 mongoose.set('useCreateIndex', true);
 
@@ -40,9 +42,43 @@ db.once('open', () =>{
 const wss = new WebSocket.Server({ port:8080 })
 
 var id = 0;
+//lookup[ws.id] = {
+    //ws:ws,
+  //  uuid:null
+//}
 var lookup = {}
 
+//clients[user.uuid] = {
+//    ws: ws,
+//    username: user.username
+//}
 var clients = {}
+
+var lobbyPort = 8081
+//lobbyobj name:{websocketserver:wss, "uuid":"uuid of host", players:[]}
+//lobbies {lobbyname:lobbyOBJ, ...}
+var lobbies = {}
+
+//data {"name", uuid}
+function createLobby(ws, data){
+    //console.log(data)
+    lobbywss = new WebSocket.Server({ port:lobbyPort })
+    lobbywss.on('connection', (ws)=>{
+        ws.on('message', (message)=>{
+            console.log("message")
+            //"register packet, register to server with auth info, (validate user then also add status, change websocket to that of the server)"
+            //"disconnect packet, return clients status to that of in menu, change client ws obj to reflect that they connected to auth webserver again also close connection, if user is host, cahnge host, if lobby is empty, destroy server"
+            //when is lobby make player join a scene with 
+            //CHANGE LOOKUP TO THIS WEBSOCKET
+        })
+        ws.lobbyName = data.name;
+        ws.host = data.uuid
+        ws.send("connected to lobby " + ws.lobbyName + " host is currently " + ws.host)
+    });
+    lobbies[data.name] = {websocketserver:lobbywss, uuid: data.uuid, players:[]}
+}
+
+//packet fucntions
 
 function sendInfo(ws, data){
     sendPacket(ws, 'info', data)
@@ -52,53 +88,22 @@ function sendErr(ws, errCode){
     sendPacket(ws, 'err', errCode)
 }
 
-function sendPacket(ws, type, data){
-    var msg = {
-        type: type,
-        data: data
-    };
-
-    ws.send(JSON.stringify(msg))
-}
-
-//function noop() {}
-
-//function heartbeat() {
-//    this.isAlive = true;
- // }
-
-//const interval = setInterval(function ping() {
-//    wss.clients.forEach(function each(ws) {
-//        if (ws.isAlive === false){
- //           freeConn(ws.id)
- //           ws.terminate();
-//        }
-
- //       ws.isAlive = false;
-  //      ws.ping(noop);
-//});
-//}, 30000);
-
-//wss.on('close', function close() {
-   // clearInterval(interval);
-  //});
-
-wss.on('connection', ws=>{
-    ws.on('message', message =>{
-        handleIncoming(ws, message.toString())
-    })
-
-    ws.isAlive = true;
-    //ws.on('pong', heartbeat);
-
-    ws.id = id++;
-    lookup[ws.id] = {
-        ws:ws,
-        uuid:null
+function sendLobbies(ws){   
+    tosend = []
+    var x;
+    for(x in lobbies){
+        //console.log(lobbies[x])
+        tosend.push("{" +
+            '"name"' + ":" + '"' + x + '",' +
+            '"ws"' + ":" + '"' + lobbies[x].websocketserver.address().port + '",' +
+            '"connected"' + ":" +  lobbies[x].players.length + 
+        "}")
     }
-    console.log("client connected and assigned id: " + ws.id)
-    sendPacket(ws, 'connection', ws.id)
-});
+
+    sendPacket(ws, 'lobbylist', '{'+
+        '"lobbies"' + ":[" +tosend +
+    ']}')
+}
 
 function authClient(ws, msg){//check if user exists, if not deny access
     //console.log(msg)
@@ -114,8 +119,8 @@ function authClient(ws, msg){//check if user exists, if not deny access
             if(result){
                 if(!(user.uuid in clients)){
                     sendPacket(ws, 'auth', "{" +
-                        "\"username\":\"" + user.username +"\","+
-                        "\"uuid\":\""+ user.uuid+"\"}")
+                        '"username":"' + user.username +'",'+
+                        '"uuid":"'+ user.uuid+'"}')
                     clients[user.uuid] = {
                         ws: ws,
                         username: user.username
@@ -152,6 +157,33 @@ function registerClient(ws, msg){
     });
 }
 
+function sendPacket(ws, type, data){
+    var msg = {
+        type: type,
+        data: data
+    };
+
+    ws.send(JSON.stringify(msg))
+}
+
+
+wss.on('connection', ws=>{
+    ws.on('message', message =>{
+        handleIncoming(ws, message.toString())
+    })
+
+    ws.isAlive = true;
+    //ws.on('pong', heartbeat);
+
+    ws.id = id++;
+    lookup[ws.id] = {
+        ws:ws,
+        uuid:null
+    }
+    console.log("client connected and assigned id: " + ws.id)
+    sendPacket(ws, 'connection', ws.id)
+});
+
 function handleIncoming(ws, event){
     var msg = JSON.parse(event)
 
@@ -169,6 +201,11 @@ function handleIncoming(ws, event){
             ws.close();
             freeConn()
             break;
+        case'getlobbies':
+            sendLobbies(ws)
+            break;
+        case 'createlobby':
+            createLobby(ws, msg.data)
     }
 }
 
