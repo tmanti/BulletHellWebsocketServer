@@ -3,7 +3,9 @@ const WebSocket = require('ws');
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 
-const uuidv4 = require('uuid/v4');
+const express = require("express")
+
+const {v4:uuidv4} = require('uuid');
 
 const mongoose = require('mongoose');
 const { send } = require('process');
@@ -40,6 +42,7 @@ db.once('open', () =>{
 
 
 const wss = new WebSocket.Server({ port:8080 })
+console.log("websocket server started on port 8080")
 
 var id = 0;
 //lookup[ws.id] = {
@@ -50,7 +53,8 @@ var lookup = {}
 
 //clients[user.uuid] = {
 //    ws: ws,
-//    username: user.username
+//    username: user.username,
+//    status: (if status not menu, ws is invalid)
 //}
 var clients = {}
 
@@ -63,19 +67,48 @@ var lobbies = {}
 function createLobby(ws, data){
     //console.log(data)
     lobbywss = new WebSocket.Server({ port:lobbyPort })
+    console.log("lobby Websocketserver started on port " + lobbyPort)
     lobbywss.on('connection', (ws)=>{
         ws.on('message', (message)=>{
-            console.log("message")
-            //"register packet, register to server with auth info, (validate user then also add status, change websocket to that of the server)"
-            //"disconnect packet, return clients status to that of in menu, change client ws obj to reflect that they connected to auth webserver again also close connection, if user is host, cahnge host, if lobby is empty, destroy server"
-            //when is lobby make player join a scene with 
-            //CHANGE LOOKUP TO THIS WEBSOCKET
+            handleLobbyIncoming(message)
+            //REGISTER REPLACES CLIENT.WS
+            //AFTER DISCONNECT RE ADD
         })
         ws.lobbyName = data.name;
         ws.host = data.uuid
         ws.send("connected to lobby " + ws.lobbyName + " host is currently " + ws.host)
     });
-    lobbies[data.name] = {websocketserver:lobbywss, uuid: data.uuid, players:[]}
+    lobbies[data.name] = {websocketserver:lobbywss, host: data.uuid, players:[]}
+    //sendLobbies(ws)
+    sendPacket(ws, 'host', "{"+
+        '"port":'+'"'+lobbyPort+'",'+
+        '"name":' + '"' +data.name+'"'+
+    "}")
+    lobbyPort++;
+}
+
+function joinLobby(ws, data, id){
+    clients[lookup[id].uuid].status = data.name
+    clients[lookup[id].uuid].ws = null
+    lookup[id].ws = null
+    ws.close()
+}
+
+function handleLobbyIncoming(ws, event){
+    var msg = JSON.parse(event)
+
+        //"register packet, register to server with auth info, (validate user then also add status, change websocket to that of the server)"
+        //"disconnect packet, return clients status to that of in menu, change client ws obj to reflect that they connected to auth webserver again also close connection, if user is host, cahnge host, if lobby is empty, destroy server"
+        //when is lobby make player join a scene with 
+        //CHANGE LOOKUP TO THIS WEBSOCKET
+
+    console.log(msg)
+
+    switch(msg.type){
+        case 'resgister':
+            console.log("register")
+            break;
+    }
 }
 
 //packet fucntions
@@ -121,9 +154,11 @@ function authClient(ws, msg){//check if user exists, if not deny access
                     sendPacket(ws, 'auth', "{" +
                         '"username":"' + user.username +'",'+
                         '"uuid":"'+ user.uuid+'"}')
+                    lookup[msg.id].uuid = user.uuid
                     clients[user.uuid] = {
                         ws: ws,
-                        username: user.username
+                        username: user.username,
+                        status: "menu"
                     }
                     console.log(user.username + ' successfully authenticated')
                 } else {
@@ -145,11 +180,11 @@ function registerClient(ws, msg){
         const newUser = new User({ uuid:uuidv4(), username: userobj.username, password: hash})
         newUser.save(function(err, newUser){
             if(err){
-                    if (error.name === 'MongoError' && error.code === 11000) {
+                if (err.name === 'MongoError' && err.code === 11000) {
                     console.error('user attempted to register with an ununique username')
                     sendErr(ws, 11000)
                     return;
-                    }
+                }
             }
             console.log("successfully registered new user: " + newUser.uuid + ":" + newUser.username)
             sendPacket(ws, 'registered', 'successfully registered new user')
@@ -172,7 +207,7 @@ wss.on('connection', ws=>{
         handleIncoming(ws, message.toString())
     })
 
-    ws.isAlive = true;
+    //ws.isAlive = true;
     //ws.on('pong', heartbeat);
 
     ws.id = id++;
@@ -199,13 +234,17 @@ function handleIncoming(ws, event){
             break;
         case 'close':
             ws.close();
-            freeConn()
+            freeConn(msg.id)
             break;
         case'getlobbies':
             sendLobbies(ws)
             break;
         case 'createlobby':
             createLobby(ws, msg.data)
+            break;
+        case 'join':
+            joinLobby(ws, msg.data, msg.id)
+            break;
     }
 }
 
